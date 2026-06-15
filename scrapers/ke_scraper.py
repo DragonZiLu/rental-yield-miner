@@ -147,6 +147,53 @@ class KeScraper(BaseScraper):
             logger.debug(f"解析租金卡片异常: {e}")
             return None
 
+    # ==================== 精准搜索 ====================
+    def search_community(self, community_name: str) -> Optional[Dict]:
+        """
+        精准搜索指定小区，返回 {sale: {...}, rental: {...}} 或 None
+
+        URL: https://{city}.ke.com/ershoufang/rs{社区名}/
+        """
+        from urllib.parse import quote
+        encoded = quote(community_name)
+        info = {"community": community_name, "source": "贝壳精准搜索"}
+
+        # 二手房
+        sale_url = f"{self.base_url}/ershoufang/rs{encoded}/"
+        soup = self._fetch(sale_url, referer=self.base_url)
+        if soup:
+            card = soup.select_one(".sellListContent li, .listContent li, [class*=item]")
+            if card:
+                parsed = self._parse_sale_card(card)
+                if parsed:
+                    info.update(parsed)
+
+        self._random_delay()
+
+        # 租金
+        rent_url = f"{self.base_url}/zufang/rs{encoded}/"
+        soup = self._fetch(rent_url, referer=self.base_url)
+        if soup:
+            card = soup.select_one(".content__list--item, [class*=item]")
+            if card:
+                parsed = self._parse_rental_card(card)
+                if parsed:
+                    info.update(parsed)
+
+        return info if "total_price_wan" in info or "monthly_rent" in info else None
+
+    def search_communities(self, community_names: List[str]) -> List[Dict]:
+        """批量精准搜索多个小区"""
+        results = []
+        for name in community_names:
+            self._random_delay()
+            r = self.search_community(name)
+            if r:
+                results.append(r)
+            else:
+                results.append({"community": name, "source": "贝壳精准搜索", "not_found": True})
+        return results
+
     def fetch_rental_listings(self) -> List[Dict]:
         """分页爬取租金列表"""
         all_listings = []

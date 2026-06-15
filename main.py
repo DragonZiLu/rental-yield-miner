@@ -162,6 +162,7 @@ def main():
     console.print(Panel.fit(
         f"[bold cyan]🏠 房产租售比挖掘系统[/bold cyan]\n"
         f"目标城市: {', '.join(cities)}\n"
+        f"范围: 仅核心城区\n"
         f"数据源: {data_sources}\n"
         f"最低租售比: {config.YIELD_THRESHOLD}%\n"
         f"总价上限: {'不限' if config.MAX_TOTAL_PRICE_WAN is None else f'{config.MAX_TOTAL_PRICE_WAN}万'}\n"
