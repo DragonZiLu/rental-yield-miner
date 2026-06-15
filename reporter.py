@@ -183,6 +183,26 @@ def generate_excel(df_all: pd.DataFrame, output_dir: str = None):
     ws3.freeze_panes = "A2"
     _auto_width(ws3)
 
+    # ---------- Sheet 4: 小红书验证（如果有数据）----------
+    xhs_cols = ["城市", "小区名", "年租售比(%)", "月租金_综合(元)",
+                 "总价估算(万元)", "数据来源", "小红书笔记数",
+                 "小红书热度", "小红书置信度", "小红书验证状态"]
+    available_xhs = [c for c in xhs_cols if c in df_all.columns]
+    if "小红书笔记数" in df_all.columns:
+        ws4 = wb.create_sheet("小红书验证")
+        xhs_df = df_all[df_all["小红书笔记数"] > 0][available_xhs].sort_values(
+            "小红书置信度", ascending=False
+        )
+        if len(xhs_df) > 0:
+            _style_header(ws4, available_xhs)
+            _write_data_rows(ws4, xhs_df)
+            _highlight_yield(ws4, xhs_df)
+            ws4.freeze_panes = "A2"
+            _auto_width(ws4)
+        else:
+            ws4.cell(row=1, column=1, value="暂无小红书验证数据")
+            ws4.cell(row=1, column=1).font = HEADER_FONT
+
     # ---------- 保存 ----------
     wb.save(filepath)
     logger.info(f"Excel 报告已保存: {filepath}")
@@ -251,4 +271,51 @@ def print_console_report(df_all: pd.DataFrame):
         console.print(table)
     else:
         console.print("[yellow]⚠ 暂无达标小区[/yellow]")
+    console.print()
+
+
+def print_xhs_report(df_all: pd.DataFrame):
+    """打印小红书验证摘要"""
+    if "小红书笔记数" not in df_all.columns:
+        return
+
+    verified = df_all[df_all["小红书笔记数"] > 0]
+    if len(verified) == 0:
+        console.print("[dim]📕 小红书: 无验证数据[/dim]")
+        return
+
+    high_conf = verified[verified["小红书置信度"] >= 0.5]
+
+    console.print()
+    table = Table(title="📕 小红书验证 Top 10（按置信度）", box=box.SIMPLE)
+    table.add_column("排名", style="dim", width=5)
+    table.add_column("城市", style="cyan")
+    table.add_column("小区", style="bold white")
+    table.add_column("租售比", style="bold yellow", justify="right")
+    table.add_column("XHS笔记", justify="right")
+    table.add_column("热度", justify="right")
+    table.add_column("置信度", style="magenta", justify="right")
+
+    for rank, (_, row) in enumerate(verified.head(10).iterrows(), 1):
+        conf = row.get("小红书置信度", 0)
+        conf_style = "[bold green]" if conf >= 0.5 else ""
+        conf_end = "[/bold green]" if conf_style else ""
+
+        table.add_row(
+            str(rank),
+            str(row.get("城市", "")),
+            str(row.get("小区名", ""))[:18],
+            str(row.get("年租售比(%)", "")),
+            str(int(row.get("小红书笔记数", 0))),
+            str(int(row.get("小红书热度", 0))),
+            f"{conf_style}{conf:.2f}{conf_end}",
+        )
+
+    console.print(table)
+
+    if len(high_conf) > 0:
+        console.print(
+            f"[green]✅ {len(high_conf)} 个小区在小红书获得高置信度验证 "
+            f"(≥0.5)[/green]"
+        )
     console.print()

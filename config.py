@@ -64,6 +64,17 @@ PROXIES = None
 # 并发线程数（同时爬取贝壳 + 安居客）
 MAX_WORKERS = 2
 
+# ==================== 小红书配置 ====================
+# 每小区最多搜索笔记数
+XHS_MAX_NOTES_PER_COMMUNITY = 10
+
+# 小红书搜索延迟（秒）
+XHS_DELAY_MIN = 3.0
+XHS_DELAY_MAX = 6.0
+
+# 小红书最多验证小区数（达标小区中取 Top N）
+XHS_MAX_VERIFY_COMMUNITIES = 20
+
 # ==================== 输出配置 ====================
 OUTPUT_DIR = "output"
 

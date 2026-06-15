@@ -17,10 +17,10 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 import config
-from scrapers import KeScraper, AnjukeScraper
+from scrapers import KeScraper, AnjukeScraper, XiaohongshuScraper
 from merger import merge
 from calculator import calculate, get_qualified
-from reporter import generate_excel, print_console_report
+from reporter import generate_excel, print_console_report, print_xhs_report
 
 console = Console()
 
@@ -125,6 +125,10 @@ def main():
         "--output-dir", type=str, default=config.OUTPUT_DIR,
         help=f"报告输出目录（默认 {config.OUTPUT_DIR}）",
     )
+    parser.add_argument(
+        "--with-xhs", action="store_true",
+        help="启用小红书辅助验证（对达标小区进行社交媒体交叉验证）",
+    )
 
     args = parser.parse_args()
 
@@ -145,13 +149,20 @@ def main():
         cities = list(config.CITIES.keys())
 
     use_anjuke = not args.no_anjuke
+    use_xhs = args.with_xhs
 
     # ==================== 开始 ====================
     console.print()
+    data_sources = "贝壳找房"
+    if use_anjuke:
+        data_sources += " + 安居客"
+    if use_xhs:
+        data_sources += " + 小红书验证"
+
     console.print(Panel.fit(
         f"[bold cyan]🏠 房产租售比挖掘系统[/bold cyan]\n"
         f"目标城市: {', '.join(cities)}\n"
-        f"数据源: 贝壳找房 {'+ 安居客' if use_anjuke else '（仅贝壳）'}\n"
+        f"数据源: {data_sources}\n"
         f"最低租售比: {config.YIELD_THRESHOLD}%\n"
         f"总价上限: {'不限' if config.MAX_TOTAL_PRICE_WAN is None else f'{config.MAX_TOTAL_PRICE_WAN}万'}\n"
         f"每城最大页数: {config.MAX_PAGES_PER_CITY}",
@@ -189,6 +200,77 @@ def main():
     # 重新计算（确保全局配置一致）
     df_all = calculate(df_all)
 
+    # ==================== 小红书验证 ====================
+    xhs_results = []
+    if use_xhs:
+        console.print()
+        console.print("[bold magenta]📕 小红书辅助验证中...[/bold magenta]")
+        try:
+            xhs = XiaohongshuScraper()
+            qualified = get_qualified(df_all)
+
+            if len(qualified) > 0:
+                # 取每城 top N 小区做验证
+                top_n = min(config.XHS_MAX_VERIFY_COMMUNITIES, len(qualified))
+                to_verify = qualified.head(top_n)
+
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    console=console,
+                ) as progress:
+                    task = progress.add_task(
+                        "[magenta]小红书搜索...", total=len(to_verify)
+                    )
+                    for _, row in to_verify.iterrows():
+                        city = row["城市"]
+                        community = row["小区名"]
+                        progress.update(
+                            task,
+                            description=f"[magenta]搜索: {community}",
+                        )
+                        r = xhs.search_community(city, community)
+                        xhs_results.append(r)
+                        progress.advance(task)
+
+                # 将 XHS 数据合并到 df_all
+                xhs_map = {}
+                for r in xhs_results:
+                    key = r["community"].lower().strip()
+                    xhs_map[key] = r
+
+                df_all["小红书笔记数"] = df_all.apply(
+                    lambda row: xhs_map.get(
+                        str(row.get("小区名", "")).lower().strip(), {}
+                    ).get("total_notes", 0),
+                    axis=1,
+                )
+                df_all["小红书热度"] = df_all.apply(
+                    lambda row: xhs_map.get(
+                        str(row.get("小区名", "")).lower().strip(), {}
+                    ).get("heat_score", 0),
+                    axis=1,
+                )
+                df_all["小红书置信度"] = df_all.apply(
+                    lambda row: xhs_map.get(
+                        str(row.get("小区名", "")).lower().strip(), {}
+                    ).get("confidence", 0.0),
+                    axis=1,
+                )
+                df_all["小红书验证状态"] = df_all.apply(
+                    lambda row: "已验证" if row["小红书笔记数"] > 0 else "未验证",
+                    axis=1,
+                )
+
+                console.print(
+                    f"[green]✅ 小红书验证完成: {len(xhs_results)} 个小区[/green]"
+                )
+            else:
+                console.print("[yellow]⚠ 无达标小区，跳过小红书验证[/yellow]")
+        except Exception as e:
+            logger.error(f"小红书验证异常: {e}")
+            console.print(f"[red]❌ 小红书验证失败: {e}[/red]")
+
     # ==================== 报告输出 ====================
     # Excel
     try:
@@ -200,6 +282,10 @@ def main():
 
     # 控制台摘要
     print_console_report(df_all)
+
+    # 小红书验证报告（如果有）
+    if use_xhs:
+        print_xhs_report(df_all)
 
     return df_all
 
