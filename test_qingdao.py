@@ -380,4 +380,18 @@ def print_report(candidates, sentiment, population):
 
 
 if __name__ == "__main__":
+    # 控制台输出
     print_report(qingdao_candidates, qingdao_sentiment, qingdao_population)
+
+    # 生成 Markdown 报告
+    from report_generator import generate_report
+
+    # 计算评分
+    results = []
+    for c in qingdao_candidates:
+        scores = composite_score(c, qingdao_sentiment, qingdao_population)
+        results.append((c, scores))
+    results.sort(key=lambda x: x[1]["composite_score"], reverse=True)
+
+    filepath = generate_report("青岛", results, qingdao_sentiment, qingdao_population)
+    console.print(f"\n[green]✅ 报告已生成: {filepath}[/green]")
